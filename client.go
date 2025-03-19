@@ -552,9 +552,7 @@ func DefaultBackoff(min, max time.Duration, attemptNum int, resp *http.Response)
 	if resp != nil {
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 			if sleep, ok := parseRetryAfterHeader(resp.Header["Retry-After"]); ok {
-				if sleep <= max {
-					return sleep
-				}
+				return sleep
 			}
 		}
 	}
@@ -771,6 +769,9 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 		}
 
 		wait := c.Backoff(c.RetryWaitMin, c.RetryWaitMax, i, resp)
+		if wait > c.RetryWaitMax { // If the server wants us to wait longer than we are allowed, give up.
+			break
+		}
 		if logger != nil {
 			desc := fmt.Sprintf("%s %s", req.Method, redactURL(req.URL))
 			if resp != nil {
