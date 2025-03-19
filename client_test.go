@@ -504,19 +504,19 @@ func TestClient_Do_fails(t *testing.T) {
 			url:  ts.URL,
 			name: "default_retry_policy",
 			cr:   DefaultRetryPolicy,
-			err:  "giving up after 3 attempt(s)",
+			err:  "giving up after 3 attempt(s) [last statusCode: 500]",
 		},
 		{
 			url:  serverUrlWithBasicAuth.String(),
 			name: "default_retry_policy_url_with_basic_auth",
 			cr:   DefaultRetryPolicy,
-			err:  redactURL(serverUrlWithBasicAuth) + " giving up after 3 attempt(s)",
+			err:  redactURL(serverUrlWithBasicAuth) + " giving up after 3 attempt(s) [last statusCode: 500]",
 		},
 		{
 			url:  ts.URL,
 			name: "error_propagated_retry_policy",
 			cr:   ErrorPropagatedRetryPolicy,
-			err:  "giving up after 3 attempt(s): unexpected HTTP status 500 Internal Server Error",
+			err:  "giving up after 3 attempt(s) [last statusCode: 500]: unexpected HTTP status 500 Internal Server Error",
 		},
 	}
 
@@ -800,7 +800,7 @@ func TestClient_CheckRetry(t *testing.T) {
 		t.Fatalf("CheckRetry called %d times, expected 1", called)
 	}
 
-	if err.Error() != fmt.Sprintf("GET %s giving up after 2 attempt(s): retryError", ts.URL) {
+	if err.Error() != fmt.Sprintf("GET %s giving up after 2 attempt(s) [last statusCode: 500]: retryError", ts.URL) {
 		t.Fatalf("Expected retryError, got:%v", err)
 	}
 }

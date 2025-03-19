@@ -833,13 +833,16 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 
 	// this means CheckRetry thought the request was a failure, but didn't
 	// communicate why
-	if err == nil {
-		return nil, fmt.Errorf("%s %s giving up after %d attempt(s)",
-			req.Method, redactURL(req.URL), attempt)
+	errMsg := fmt.Sprintf("%s %s giving up after %d attempt(s)", req.Method, redactURL(req.URL), attempt)
+	if resp != nil {
+		errMsg += fmt.Sprintf(" [last statusCode: %d]", resp.StatusCode)
 	}
 
-	return nil, fmt.Errorf("%s %s giving up after %d attempt(s): %w",
-		req.Method, redactURL(req.URL), attempt, err)
+	if err == nil {
+		return nil, fmt.Errorf(errMsg)
+	}
+
+	return nil, fmt.Errorf("%s: %w", errMsg, err)
 }
 
 // Try to read the response body so we can reuse this connection.
