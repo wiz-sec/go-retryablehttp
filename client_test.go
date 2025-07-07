@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1282,4 +1283,38 @@ func TestClient_RedirectWithBody(t *testing.T) {
 	if atomic.LoadInt32(&redirects) != 2 {
 		t.Fatalf("Expected the client to be redirected 2 times, got: %d", atomic.LoadInt32(&redirects))
 	}
+}
+
+func TestUrlQueryParamsAreRedactedFromLogs(t *testing.T) {
+	ts := serveFailOnceServer()
+	defer ts.Close()
+
+	logBuffer := &bytes.Buffer{}
+	logger := log.New(logBuffer, "", log.LstdFlags)
+	client := NewClient()
+	client.Logger = logger
+
+	resp, err := client.Get(ts.URL + "?X-Amz-Credential=SECRET")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	resp.Body.Close()
+
+	actualLogs := string(logBuffer.Bytes())
+	if strings.Contains(actualLogs, "SECRET") {
+		t.Fatalf("log contains SECRET that should have been redacted: %s", actualLogs)
+	}
+}
+
+func serveFailOnceServer() *httptest.Server {
+	var retries int32 = 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&retries) == 0 {
+			w.WriteHeader(500)
+		} else {
+			w.WriteHeader(200)
+		}
+
+		atomic.AddInt32(&retries, 1)
+	}))
 }
