@@ -910,16 +910,16 @@ func (c *Client) StandardClient() *http.Client {
 	}
 }
 
-// Taken from url.URL#Redacted() which was introduced in go 1.15.
-// We can switch to using it directly if we'll bump the minimum required go version.
+// Should be aligned with wiz-sec/wiz/commonlib/anonymize/anonymize.go#RedactURL()
 func redactURL(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
 
 	ru := *u
-	if _, has := ru.User.Password(); has {
-		ru.User = url.UserPassword(ru.User.Username(), "xxxxx")
-	}
-	return ru.String()
+
+	// Remove query as it might contain secrets, e.g. presigned URLs
+	ru.RawQuery = ""
+	ru.ForceQuery = false
+	return ru.Redacted()
 }
