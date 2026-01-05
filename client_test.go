@@ -224,7 +224,14 @@ func testClientDo(t *testing.T, body interface{}) {
 		t.Fatalf("err: %v", err)
 	}
 	defer list.Close()
-	go http.Serve(list, handler)
+	errors := make(chan error, 1)
+	go func() {
+		err := http.Serve(list, handler)
+		if err != nil {
+			errors <- err
+			return
+		}
+	}()
 
 	// Wait again
 	select {
@@ -647,10 +654,14 @@ func testClientResponseLogHook(t *testing.T, l interface{}, buf *bytes.Buffer) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if time.Now().After(passAfter) {
 			w.WriteHeader(200)
-			w.Write([]byte("test_200_body"))
+			if _, err := w.Write([]byte("test_200_body")); err != nil {
+				t.Fatalf("failed to write: %v", err)
+			}
 		} else {
 			w.WriteHeader(500)
-			w.Write([]byte("test_500_body"))
+			if _, err := w.Write([]byte("test_500_body")); err != nil {
+				t.Fatalf("failed to write: %v", err)
+			}
 		}
 	}))
 	defer ts.Close()
@@ -726,7 +737,9 @@ func TestClient_NewRequestWithContext(t *testing.T) {
 func TestClient_RequestWithContext(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte("test_200_body"))
+		if _, err := w.Write([]byte("test_200_body")); err != nil {
+			t.Fatalf("failed to write: %v", err)
+		}
 	}))
 	defer ts.Close()
 
@@ -1129,6 +1142,113 @@ func TestClient_PostForm(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 	resp.Body.Close()
+}
+
+func TestBackoff_RateLimitLinearJitterBackoff(t *testing.T) {
+	testCases := []struct {
+		name         string
+		min          time.Duration
+		max          time.Duration
+		headers      http.Header
+		responseCode int
+		expect       time.Duration
+	}{
+		{
+			name:         "429 no retry header",
+			min:          time.Second,
+			max:          time.Second,
+			headers:      http.Header{},
+			responseCode: http.StatusTooManyRequests,
+			expect:       time.Second,
+		},
+		{
+			name:         "503 no retry header",
+			min:          time.Second,
+			max:          time.Second,
+			headers:      http.Header{},
+			responseCode: http.StatusServiceUnavailable,
+			expect:       time.Second,
+		},
+		{
+			name: "429 retry header",
+			min:  time.Second,
+			max:  time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "503 retry header",
+			min:  time.Second,
+			max:  time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusServiceUnavailable,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "502 ignore retry header",
+			min:  time.Second,
+			max:  time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusBadGateway,
+			expect:       time.Second,
+		},
+		{
+			name:         "502 no retry header",
+			min:          time.Second,
+			max:          time.Second,
+			headers:      http.Header{},
+			responseCode: http.StatusBadGateway,
+			expect:       time.Second,
+		},
+		{
+			name: "429 retry header with jitter",
+			min:  time.Second,
+			max:  5 * time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "429 retry header less than min",
+			min:  5 * time.Second,
+			max:  10 * time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "429 retry header in range",
+			min:  time.Second,
+			max:  10 * time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RateLimitLinearJitterBackoff(tc.min, tc.max, 0, &http.Response{
+				StatusCode: tc.responseCode,
+				Header:     tc.headers,
+			})
+			if got != tc.expect {
+				t.Fatalf("expected %s, got %s", tc.expect, got)
+			}
+		})
+	}
 }
 
 func TestBackoff(t *testing.T) {
